@@ -1,4 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom/client';
 
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, setDoc } from 'firebase/firestore';
@@ -551,4 +552,8 @@ const App = () => {
   );
 };
 
-export default App;
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
