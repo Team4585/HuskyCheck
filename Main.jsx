@@ -1,9 +1,13 @@
 ﻿import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 
+// 🔥 IMPORT FIREBASE PACKAGES
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, setDoc } from 'firebase/firestore';
 
+// ==========================================
+// 🔑 CONFIG YOUR FIREBASE INSTANCE HERE
+// ==========================================
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -13,17 +17,20 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
-
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-
+// ==========================================
+// 🔑 HARDCODE YOUR THE BLUE ALLIANCE KEY HERE
+// ==========================================
 const TBA_AUTH_KEY = import.meta.env.VITE_TBA_AUTH_KEY; 
 
 // --- GENERIC CATEGORY SUB-DIVISIONS ---
 const CATEGORIES = ['Mechanical', 'Electrical', 'Pneumatics', 'Controls & Code'];
 const BATTERY_LIST = ['Battery #1 (Gold)', 'Battery #2 (Silver)', 'Battery #3 (Bronze)', 'Battery #4 (Black)'];
 
+// STATE MACHINE DEFINITIONS FOR BATTERY CONFIGURATIONS
 const BATTERY_STATES = {
   CHARGING: { label: '⚡ CHARGING', color: '#F59E0B', bg: '#78350F' },
   READY: { label: '✅ READY', color: '#22C55E', bg: '#064E3B' },
@@ -32,20 +39,25 @@ const BATTERY_STATES = {
 };
 
 const App = () => {
+  // --- APPLICATION STATE INTERFACES ---
   const [activeTab, setActiveTab] = useState('check'); 
   const [selectedSubCat, setSelectedSubCat] = useState('Mechanical');
   
+  // Dynamic Environment & Mode Statuses
   const [isPracticeMode, setIsPracticeMode] = useState(true);
   const [currentEventName, setCurrentEventName] = useState('Checking Blue Alliance API...');
   const [currentEventKey, setCurrentEventKey] = useState('');
   
+  // Notification Permission Monitoring
   const [notificationPermission, setNotificationPermission] = useState(
     typeof Notification !== 'undefined' ? Notification.permission : 'default'
   );
 
+  // Prevention triggers to make sure alerts fire exactly once per target match
   const [alertedQueuing, setAlertedQueuing] = useState(false);
   const [alertedTenMin, setAlertedTenMin] = useState(false);
 
+  // Isolated Categorized Checklists
   const [compChecklist, setCompChecklist] = useState([
     { id: 'cm1', task: 'Inspect chassis and frame structural bolts', cat: 'Mechanical', tool: 'Wrenches / Allens', checked: false },
     { id: 'cm2', task: 'Check all drive chains, belts, and pulley tension', cat: 'Mechanical', tool: 'Hand test', checked: false },
@@ -66,19 +78,24 @@ const App = () => {
     { id: 'pc1', task: 'Deploy development code updates and test user inputs', cat: 'Controls & Code', tool: 'VSCode / Joystick', checked: false }
   ]);
 
+  // Dynamic Schedule States
   const [schedule, setSchedule] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [apiError, setApiError] = useState('');
 
+  // Separated Battery Metrics Configurations
   const [selectedBattery, setSelectedBattery] = useState(BATTERY_LIST[0]);
   const [batteryData, setBatteryData] = useState({ preVolts: '', preCharge: '', preResist: '', postVolts: '', postCharge: '', postResist: '' });
 
+  // Real-time Cloud Data Trackers
   const [compHistory, setCompHistory] = useState([]);
   const [practiceHistory, setPracticeHistory] = useState([]);
   const [batteryStates, setBatteryStates] = useState({});
 
+  // Countdown timer clock state for live match events
   const [secondsToMatch, setSecondsToMatch] = useState(0);
 
+  // --- AUTOMATED CALCULATION LOGIC LAYER ---
   const currentChecklist = isPracticeMode ? practiceChecklist : compChecklist;
   const activeMatchObj = schedule.find(m => m.status === 'upcoming') || { matchNum: 'N/A', label: 'Practice Session' };
   const currentSessionLabel = isPracticeMode ? 'Practice Session' : `Match #${activeMatchObj.matchNum}`;
@@ -99,22 +116,27 @@ const App = () => {
     submitBtn: { width: '100%', padding: '18px', borderRadius: '12px', border: 'none', backgroundColor: theme.green, color: '#052e16', fontWeight: '900', fontSize: '16px', cursor: 'pointer', marginTop: '10px' }
   };
 
+  // 🔄 FIREBASE EFFECT: Real-time Cloud Sync Listeners
   useEffect(() => {
+    // Sync Competition History
     const qComp = query(collection(db, "compHistory"), orderBy("createdAt", "desc"));
     const unsubscribeComp = onSnapshot(qComp, (snapshot) => {
       setCompHistory(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
+    // Sync Practice History
     const qPractice = query(collection(db, "practiceHistory"), orderBy("createdAt", "desc"));
     const unsubscribePractice = onSnapshot(qPractice, (snapshot) => {
       setPracticeHistory(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
+    // Sync Battery State Machine Real-time Collections
     const unsubscribeBatteries = onSnapshot(collection(db, "batteryStates"), (snapshot) => {
       const liveStates = {};
       snapshot.docs.forEach(doc => {
         liveStates[doc.id] = doc.data().status;
       });
+      // Fallback injection if brand new database setup lacks records
       BATTERY_LIST.forEach(b => {
         if (!liveStates[b]) liveStates[b] = 'READY';
       });
@@ -128,44 +150,13 @@ const App = () => {
     };
   }, []);
 
+  // Reset alert trackers whenever a new upcoming target match switches up
   useEffect(() => {
     setAlertedQueuing(false);
     setAlertedTenMin(false);
   }, [activeMatchObj.matchNum]);
 
-  useEffect(() => {
-    if (isPracticeMode) return;
-
-    const dispatchSystemAlert = (title, message) => {
-      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        new Notification(title, { body: message });
-      } else {
-        alert(`🚨 ${title.toUpperCase()}\n${message}`);
-      }
-    };
-    if (secondsToMatch <= 720 && secondsToMatch > 600 && !alertedQueuing) {
-      dispatchSystemAlert(
-        `Match #${activeMatchObj.matchNum} Queuing Call!`, 
-        `FRC Team 4585 - Robot and Drive Team must proceed to field queue immediately.`
-      );
-      setAlertedQueuing(true);
-    }
-
-    if (secondsToMatch <= 600 && secondsToMatch > 0 && !alertedTenMin) {
-      dispatchSystemAlert(
-        `Critical 10-Min Warning!`, 
-        `Match #${activeMatchObj.matchNum} starts in 10 minutes. Ensure pit checkmarks are locked.`
-      );
-      setAlertedTenMin(true);
-    }
-  }, [secondsToMatch, isPracticeMode, alertedQueuing, alertedTenMin, activeMatchObj.matchNum]);
-
-  const enableSystemNotifications = async () => {
-    if (typeof Notification === 'undefined') return;
-    const permission = await Notification.requestPermission();
-    setNotificationPermission(permission);
-  };
-
+  // Dispatches state machine updates across the cloud collection
   const transitionBatteryState = async (batteryName, targetStateKey) => {
     try {
       await setDoc(doc(db, "batteryStates", batteryName), {
@@ -177,6 +168,53 @@ const App = () => {
     }
   };
 
+  // --- AUTOMATED NOTIFICATION & SMART LIFECYCLE ENGINE ---
+  useEffect(() => {
+    if (isPracticeMode) return;
+
+    const dispatchSystemAlert = (title, message) => {
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        new Notification(title, { body: message });
+      } else {
+        alert(`🚨 ${title.toUpperCase()}\n${message}`);
+      }
+    };
+
+    // 🧠 SMART STATUS: If inside the queue/countdown pipeline (12 mins out), auto-flag selected battery as IN USE
+    if (secondsToMatch <= 720 && secondsToMatch > 0) {
+      if (batteryStates[selectedBattery] !== 'IN_USE') {
+        transitionBatteryState(selectedBattery, 'IN_USE');
+      }
+    }
+
+    // 1. Queuing Trigger Alert Condition (Fires immediately upon entering queue pipeline window at 12 mins/720s)
+    if (secondsToMatch <= 720 && secondsToMatch > 600 && !alertedQueuing) {
+      dispatchSystemAlert(
+        `Match #${activeMatchObj.matchNum} Queuing Call!`, 
+        `FRC Team 4585 - Robot and Drive Team must proceed to field queue immediately.`
+      );
+      setAlertedQueuing(true);
+    }
+
+    // 2. Critical 10-Minute Warning Alert Condition (Fires exactly at 600 seconds)
+    if (secondsToMatch <= 600 && secondsToMatch > 0 && !alertedTenMin) {
+      dispatchSystemAlert(
+        `Critical 10-Min Warning!`, 
+        `Match #${activeMatchObj.matchNum} starts in 10 minutes. Ensure pit checkmarks are locked.`
+      );
+      setAlertedTenMin(true);
+    }
+  }, [secondsToMatch, isPracticeMode, alertedQueuing, alertedTenMin, activeMatchObj.matchNum, selectedBattery, batteryStates]);
+
+  // Request browser device permissions framework
+  const enableSystemNotifications = async () => {
+    if (typeof Notification !== 'undefined') {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+    }
+  };
+
+  // --- AUTOMATION ENGINE: SYNC CURRENT EVENT LOCATION & SCHEDULE VIA TBA ---
   useEffect(() => {
     if (!TBA_AUTH_KEY || TBA_AUTH_KEY.includes("YOUR_THE_BLUE_ALLIANCE")) {
       setApiError('Missing TBA Key. Please open App.jsx and paste your secret token into the TBA_AUTH_KEY string constant.');
@@ -291,15 +329,19 @@ const App = () => {
     };
 
     try {
+      // 🧠 SMART LIFECYCLE ROUTER: If post-use fields are filled, it's back on the charger bank!
+      const autoNextState = (batteryData.postVolts || batteryData.postCharge) ? 'CHARGING' : 'DEPLETED';
+
       if (isPracticeMode) {
         await addDoc(collection(db, "practiceHistory"), logEntry);
+        await transitionBatteryState(selectedBattery, autoNextState);
         setPracticeChecklist(prev => prev.map(item => ({ ...item, checked: false })));
-        alert('Practice checklist summary saved to Firebase Cloud!');
+        alert(`Practice summary saved! Battery automatically moved to ${autoNextState}.`);
       } else {
         await addDoc(collection(db, "compHistory"), logEntry);
-        await transitionBatteryState(selectedBattery, 'DEPLETED');
+        await transitionBatteryState(selectedBattery, autoNextState);
         setCompChecklist(prev => prev.map(item => ({ ...item, checked: false })));
-        alert(`Match #${activeMatchObj.matchNum} logs archived. Battery flipped to Depleted!`);
+        alert(`Match #${activeMatchObj.matchNum} logs archived. Battery automatically moved to ${autoNextState}!`);
       }
       setBatteryData({ preVolts: '', preCharge: '', preResist: '', postVolts: '', postCharge: '', postResist: '' });
     } catch (e) {
@@ -310,6 +352,7 @@ const App = () => {
 
   return (
     <div style={styles.container}>
+      {/* BRANDING TOP EMBED ELEMENT */}
       <header style={{ textAlign: 'center', marginBottom: '20px' }}>
         <h1 style={{ 
           fontSize: '32px', 
@@ -329,6 +372,7 @@ const App = () => {
             {isPracticeMode ? '🛰️ PRACTICE ENVIRONMENT ENABLED' : '🏆 FIELD TOURNAMENT ENVIRONMENT ENABLED'}
           </div>
           
+          {/* NATIVE SYSTEM PUSH TRIGGER BUTTON CONTROL */}
           {notificationPermission !== 'granted' ? (
             <button onClick={enableSystemNotifications} style={{ background: '#78350F', color: '#F59E0B', border: '1px solid #F59E0B', borderRadius: '6px', fontSize: '11px', padding: '4px 10px', cursor: 'pointer', fontWeight: 'bold' }}>
               🔔 ENABLE PIT PUSH NOTIFICATIONS
@@ -339,6 +383,7 @@ const App = () => {
         </div>
       </header>
 
+      {/* DISCOVERED EVENT META DISPLAY HEADER */}
       <div style={{ ...styles.card, textAlign: 'center', padding: '14px' }}>
         <div style={{ fontSize: '10px', color: theme.muted, fontWeight: '800', letterSpacing: '0.5px' }}>📍 ACTIVE TOURNAMENT LOCATION REGISTERED</div>
         <div style={{ color: '#fff', fontSize: '15px', fontWeight: 'bold', marginTop: '4px' }}>{currentEventName}</div>
@@ -346,6 +391,7 @@ const App = () => {
         {isLoading && <div style={{ color: theme.amber, fontSize: '11px', marginTop: '6px' }}>Syncing TBA API repositories...</div>}
       </div>
 
+      {/* DYNAMIC 10-MINUTE ALERT SYSTEM CRITICAL FIELD BANNER */}
       {isTenMinWarning && (
         <div style={{
           backgroundColor: systemClearToGo ? '#064E3B' : '#7F1D1D',
@@ -361,6 +407,7 @@ const App = () => {
         </div>
       )}
 
+      {/* ROOT NAVIGATION HEADLINES */}
       <nav style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
         <button onClick={() => setActiveTab('check')} style={styles.pickerBtn(activeTab === 'check')}>
           {isPracticeMode ? 'PRACTICE SESSION' : 'PIT CHECKLIST'}
@@ -370,6 +417,7 @@ const App = () => {
       </nav>
 
       <main style={{ maxWidth: '500px', margin: '0 auto' }}>
+        {/* TAB CORE VIEWPORT 1: CHECKLIST AND FORM DATA CAPTURES */}
         {activeTab === 'check' && (
           <div>
             <div style={styles.card}>
@@ -452,6 +500,7 @@ const App = () => {
           </div>
         )}
 
+        {/* TAB CORE VIEWPORT 2: LIVE TOURNAMENT TIMELINES AND BUFFERS */}
         {activeTab === 'schedule' && (
           <div>
             <div style={styles.card}>
@@ -477,8 +526,10 @@ const App = () => {
           </div>
         )}
 
+        {/* TAB CORE VIEWPORT 3: STATE MACHINE AND HISTORIES */}
         {activeTab === 'analytics' && (
           <div>
+            {/* 🔋 STATE MACHINE DASHBOARD COMPONENT */}
             <div style={styles.card}>
               <h3 style={{ margin: '0 0 4px 0', fontSize: '16px', fontWeight: '900', color: theme.text }}>🔋 PIT POOL STATE MACHINE</h3>
               <p style={{ color: theme.muted, fontSize: '11px', margin: '0 0 16px 0' }}>Instantly updates all pit devices when battery statuses flip.</p>
@@ -497,6 +548,7 @@ const App = () => {
                         </span>
                       </div>
                       
+                      {/* State Machine Transition Selector Buttons */}
                       <div style={{ display: 'flex', gap: '6px' }}>
                         {Object.keys(BATTERY_STATES).map(stateKey => (
                           <button 
@@ -518,6 +570,7 @@ const App = () => {
               </div>
             </div>
 
+            {/* TOURNAMENT LOG CELL */}
             <div style={styles.card}>
               <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '900', color: theme.green }}>🏆 OFFICIAL COMPETITION REVIEWS</h3>
               {compHistory.length === 0 ? (
@@ -532,6 +585,7 @@ const App = () => {
               )}
             </div>
 
+            {/* SEPARATED PRACTICE SYSTEM HISTORY LOG FILE CELL */}
             <div style={styles.card}>
               <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '900', color: theme.green }}>⚙️ PRACTICE SESSION REVIEWS</h3>
               {practiceHistory.length === 0 ? (
@@ -552,7 +606,9 @@ const App = () => {
   );
 };
 
-ReactDOM.createRoot(document.getElementById('root')).render(
+// Injection Ignition switch element
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
   <React.StrictMode>
     <App />
   </React.StrictMode>
