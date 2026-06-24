@@ -1,20 +1,10 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, setDoc } from 'firebase/firestore';
 
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const TBA_AUTH_KEY = import.meta.env.VITE_TBA_AUTH_KEY;
+let db = null;
+let TBA_AUTH_KEY = "";
 
 const CATEGORIES = ['Mechanical', 'Electrical', 'Pneumatics', 'Controls & Code'];
 const BATTERY_LIST = ['Battery #1', 'Battery #2', 'Battery #3', 'Battery #4'];
@@ -26,6 +16,7 @@ const BATTERY_STATES = {
 };
 
 const App = () => {
+  const [isAppReady, setIsAppReady] = useState(false);
   const [activeTab, setActiveTab] = useState('check');
   const [selectedSubCat, setSelectedSubCat] = useState('Mechanical');
   const [isPracticeMode, setIsPracticeMode] = useState(true);
@@ -94,6 +85,23 @@ const App = () => {
   };
 
   useEffect(() => {
+    const bootstrapSecureConfig = async () => {
+      try {
+        const res = await fetch('/.netlify/functions/get-config');
+        const secureConfig = await res.json();
+        const app = initializeApp(secureConfig);
+        db = getFirestore(app);
+        TBA_AUTH_KEY = secureConfig.tbaKey;
+        setIsAppReady(true);
+      } catch (err) {
+        console.error("Failed initializing configuration endpoint", err);
+      }
+    };
+    bootstrapSecureConfig();
+  }, []);
+
+  useEffect(() => {
+    if (!isAppReady) return;
     const qComp = query(collection(db, "compHistory"), orderBy("createdAt", "desc"));
     const unsubscribeComp = onSnapshot(qComp, (snapshot) => {
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -133,7 +141,7 @@ const App = () => {
       unsubscribeColComp();
       unsubscribeColPractice();
     };
-  }, [isPracticeMode]);
+  }, [isPracticeMode, isAppReady]);
 
   useEffect(() => {
     const cycles = {};
@@ -194,8 +202,9 @@ const App = () => {
   };
 
   useEffect(() => {
+    if (!isAppReady) return;
     if (!TBA_AUTH_KEY || TBA_AUTH_KEY.includes("YOUR_THE_BLUE_ALLIANCE")) {
-      setApiError('Missing TBA Key. Please open App.jsx and paste your secret token into the TBA_AUTH_KEY string constant.');
+      setApiError('Missing TBA Key setup in environment configs.');
       setIsPracticeMode(true);
       setCurrentEventName('No API Token Key Found (Practice Mode Active)');
       return;
@@ -250,7 +259,7 @@ const App = () => {
       }
     };
     discoverActiveEventContext();
-  }, [compHistory]);
+  }, [compHistory, isAppReady]);
 
   useEffect(() => {
     if (isPracticeMode || secondsToMatch <= 0) return;
@@ -354,6 +363,14 @@ const App = () => {
     setSelectedBattery(randomBattery);
     dispatchSystemAlert("QR Scanner Success", `Battery hardware reference locked to ${randomBattery}`);
   };
+
+  if (!isAppReady) {
+    return (
+      <div style={{ ...styles.container, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <h3 style={{ color: theme.green, fontWeight: 'bold' }}>Securing HuskyCheck Environment Channels...</h3>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.container}>
